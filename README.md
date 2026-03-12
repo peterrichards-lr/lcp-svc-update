@@ -42,6 +42,13 @@ Checking workspace at: "/path/to/my-lxc-workspace"
 
 ## Installation
 
+### macOS (Recommended)
+Install via Homebrew to avoid "Unidentified Developer" warnings:
+```bash
+brew tap peterrichards-lr/tap
+brew install lcp-svc-update
+```
+
 ### From Source
 Ensure you have Rust and Cargo installed, then:
 ```bash
