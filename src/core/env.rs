@@ -2,24 +2,49 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub trait Workspace {
+    /// Finds the root of the Liferay project (DXP, LXC, or Client Extension)
     fn find_root(&self) -> anyhow::Result<PathBuf>;
-    fn find_services(&self, root: &Path) -> anyhow::Result<Vec<PathBuf>>;
+
+    /// Detects the type of Liferay project
+    fn detect_type(&self, root: &Path) -> ProjectType;
+
+    /// Returns the Liferay version if detectable (e.g. from gradle.properties)
     fn get_liferay_version(&self, root: &Path) -> Option<String>;
+
+    /// Specifically for LXC: Finds all service subdirectories containing LCP.json
+    fn find_services(&self, root: &Path) -> anyhow::Result<Vec<PathBuf>>;
 }
 
-pub struct LiferayCloudWorkspace {
+#[derive(Debug, PartialEq)]
+pub enum ProjectType {
+    LiferayWorkspace,
+    LiferayCloud,
+    ClientExtension,
+    Unknown,
+}
+
+pub struct LiferayProject {
     pub current_dir: PathBuf,
 }
 
-impl Workspace for LiferayCloudWorkspace {
+impl Workspace for LiferayProject {
     fn find_root(&self) -> anyhow::Result<PathBuf> {
         let mut path = self.current_dir.clone();
         loop {
-            let has_liferay = path.join("liferay").exists();
-            let has_webserver = path.join("webserver").exists();
-            let has_backup = path.join("backup").exists();
-            
-            if has_liferay || has_webserver || has_backup {
+            // Liferay Workspace (Traditional)
+            if path.join("bundles").exists()
+                || path.join("gradle.properties").exists() && path.join("modules").exists()
+            {
+                return Ok(path);
+            }
+
+            // Liferay Cloud
+            if path.join("liferay").exists() || path.join("webserver").exists() {
+                return Ok(path);
+            }
+
+            // Client Extension
+            if path.join("client-extension.yaml").exists() {
                 return Ok(path);
             }
 
@@ -27,13 +52,57 @@ impl Workspace for LiferayCloudWorkspace {
                 break;
             }
         }
+
+        // Fallback for single service update: if current dir has LCP.json, the parent might be root
         if self.current_dir.join("LCP.json").exists() {
             if let Some(parent) = self.current_dir.parent() {
                 return Ok(parent.to_path_buf());
             }
         }
-        
+
         Ok(self.current_dir.clone())
+    }
+
+    fn detect_type(&self, root: &Path) -> ProjectType {
+        if root.join("liferay").exists() && root.join("webserver").exists() {
+            ProjectType::LiferayCloud
+        } else if root.join("client-extension.yaml").exists() {
+            ProjectType::ClientExtension
+        } else if root.join("bundles").exists() || root.join("gradle.properties").exists() {
+            ProjectType::LiferayWorkspace
+        } else {
+            ProjectType::Unknown
+        }
+    }
+
+    fn get_liferay_version(&self, root: &Path) -> Option<String> {
+        let paths = vec![
+            root.join("liferay").join("gradle.properties"),
+            root.join("gradle.properties"),
+        ];
+
+        for path in paths {
+            if let Ok(content) = fs::read_to_string(path) {
+                for line in content.lines() {
+                    if line.starts_with("liferay.workspace.product=") {
+                        let product = line.split('=').nth(1)?.trim();
+                        if product.contains("7.4") || product.starts_with("dxp-202") {
+                            return Some("7.4".to_string());
+                        }
+                        if product.contains("7.3") {
+                            return Some("7.3".to_string());
+                        }
+                        if product.contains("7.2") {
+                            return Some("7.2".to_string());
+                        }
+                        if product.contains("7.1") {
+                            return Some("7.1".to_string());
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn find_services(&self, root: &Path) -> anyhow::Result<Vec<PathBuf>> {
@@ -49,32 +118,6 @@ impl Workspace for LiferayCloudWorkspace {
 
         Ok(services)
     }
-
-    fn get_liferay_version(&self, root: &Path) -> Option<String> {
-        let gradle_props_path = root.join("liferay").join("gradle.properties");
-        if !gradle_props_path.exists() {
-            return None;
-        }
-
-        let content = fs::read_to_string(gradle_props_path).ok()?;
-        for line in content.lines() {
-            if line.starts_with("liferay.workspace.product=") {
-                let product = line.split('=').nth(1)?.trim();
-                
-                // Mapping logic
-                if product.starts_with("dxp-202") || product.contains("7.4") {
-                    return Some("7.4".to_string());
-                } else if product.contains("7.3") {
-                    return Some("7.3".to_string());
-                } else if product.contains("7.2") {
-                    return Some("7.2".to_string());
-                } else if product.contains("7.1") {
-                    return Some("7.1".to_string());
-                }
-            }
-        }
-        None
-    }
 }
 
 #[cfg(test)]
@@ -83,21 +126,15 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn test_find_services() {
+    fn test_detection() {
         let dir = tempdir().unwrap();
-        let liferay_path = dir.path().join("liferay");
-        let webserver_path = dir.path().join("webserver");
+        let root = dir.path();
+        fs::create_dir(root.join("liferay")).unwrap();
+        fs::create_dir(root.join("webserver")).unwrap();
 
-        fs::create_dir_all(&liferay_path).unwrap();
-        fs::create_dir_all(&webserver_path).unwrap();
-        fs::write(liferay_path.join("LCP.json"), "{}").unwrap();
-        fs::write(webserver_path.join("LCP.json"), "{}").unwrap();
-
-        let ws = LiferayCloudWorkspace {
-            current_dir: dir.path().to_path_buf(),
+        let project = LiferayProject {
+            current_dir: root.to_path_buf(),
         };
-
-        let services = ws.find_services(dir.path()).unwrap();
-        assert_eq!(services.len(), 2);
+        assert_eq!(project.detect_type(root), ProjectType::LiferayCloud);
     }
 }

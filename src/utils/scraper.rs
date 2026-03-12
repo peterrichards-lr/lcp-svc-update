@@ -7,9 +7,9 @@ const CHANGELOG_URL: &str = "https://support.liferay.com/v/25988337";
 pub fn fetch_latest_update_link() -> anyhow::Result<String> {
     let response = reqwest::blocking::get(CHANGELOG_URL)?.text()?;
     let document = Html::parse_document(&response);
-    
+
     let selector = Selector::parse("a").unwrap();
-    
+
     for link in document.select(&selector) {
         if let Some(href) = link.value().attr("href") {
             let text = link.text().collect::<String>();
@@ -41,7 +41,7 @@ pub fn fetch_service_versions(url: &str) -> anyhow::Result<HashMap<String, Strin
             let cells: Vec<_> = row.select(&cell_selector).collect();
             if cells.len() >= 4 {
                 let service_name = cells[0].text().collect::<String>().trim().to_lowercase();
-                
+
                 let mut images = Vec::new();
                 let li_elements: Vec<_> = cells[3].select(&li_selector).collect();
                 if !li_elements.is_empty() {
