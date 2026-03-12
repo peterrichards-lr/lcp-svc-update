@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "lcp-svc-update")]
-#[command(version, about = "Update Liferay Cloud service Docker image references (LCP.json)", long_about = None)]
+#[command(version, about = "Liferay Services Updater - Update Liferay Cloud service Docker image references (LCP.json)", long_about = None)]
 pub struct App {
     #[command(subcommand)]
     pub command: AppCommands,

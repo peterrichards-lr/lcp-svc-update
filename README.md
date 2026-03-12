@@ -1,4 +1,4 @@
-# lcp-svc-update
+# Liferay Services Updater (lcp-svc-update)
 
 A specialized CLI tool for Liferay Cloud developers to automatically update service Docker image references in their workspace.
 
