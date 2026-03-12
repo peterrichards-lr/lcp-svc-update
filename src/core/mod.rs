@@ -1,2 +1,5 @@
-pub mod env;
-pub use env::{LiferayWorkspace, Workspace};
+mod env;
+pub mod lcp;
+
+pub use env::{LiferayCloudWorkspace, Workspace};
+pub use lcp::LcpJson;

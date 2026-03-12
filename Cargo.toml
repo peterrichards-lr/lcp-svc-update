@@ -1,19 +1,17 @@
 [package]
-name = "lfr-tool-template"
+name = "lcp-svc-update"
 version = "0.1.0"
 edition = "2021"
 authors = ["Peter Richards"]
-description = "A modular template for Liferay Rust CLI tools with XML and Workspace support."
+description = "Update Liferay Cloud service Docker image references (LCP.json)."
 
 [dependencies]
 # CLI Argument parsing
 clap = { version = "4.4", features = ["derive"] }
 
-# XML Processing (Crucial for Tomcat/Liferay configs)
-edit-xml = "0.1"
-
-# System & Process Management (for status/kill commands)
-sysinfo = "0.30"
+# HTTP client & HTML parsing
+reqwest = { version = "0.11", features = ["blocking"] }
+scraper = "0.18"
 
 # Error handling
 anyhow = "1.0"
@@ -23,7 +21,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # Utilities
-dialoguer = "0.11" # Interactive prompts
 chrono = "0.4"    # Timestamps for logs/backups
 
 [dev-dependencies]
