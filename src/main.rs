@@ -92,7 +92,7 @@ fn main() -> anyhow::Result<()> {
             let detected_liferay_v = ws.get_liferay_version(&root);
 
             println!("Checking workspace at: {:?}", root);
-            
+
             let project_desc = match project_type {
                 ProjectType::LiferayWorkspace => "Liferay Workspace (Traditional)",
                 ProjectType::LiferayCloud => "Liferay Cloud (LXC/DXP Cloud)",
