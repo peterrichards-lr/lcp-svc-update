@@ -3,7 +3,7 @@ mod core;
 mod utils;
 
 use crate::cli::{App, AppCommands};
-use crate::core::{LcpJson, LiferayProject, Workspace};
+use crate::core::{LcpJson, LiferayProject, ProjectType, Workspace};
 use crate::utils::{git, scraper};
 use clap::Parser;
 use std::collections::HashMap;
@@ -88,9 +88,21 @@ fn main() -> anyhow::Result<()> {
             let latest_versions = scraper::fetch_service_versions(&latest_link)?;
 
             let root = ws.find_root()?;
+            let project_type = ws.detect_type(&root);
             let detected_liferay_v = ws.get_liferay_version(&root);
+
+            println!("Checking workspace at: {:?}", root);
+            
+            let project_desc = match project_type {
+                ProjectType::LiferayWorkspace => "Liferay Workspace (Traditional)",
+                ProjectType::LiferayCloud => "Liferay Cloud (LXC/DXP Cloud)",
+                ProjectType::ClientExtension => "Liferay Client Extension",
+                ProjectType::Unknown => "Unknown project structure",
+            };
+            println!("Project type: {}", project_desc);
+
             if let Some(ref v) = detected_liferay_v {
-                println!("Detected Liferay Workspace version: {}", v);
+                println!("Detected Liferay version: {}", v);
             }
 
             let services = ws.find_services(&root)?;
@@ -98,8 +110,6 @@ fn main() -> anyhow::Result<()> {
             if services.is_empty() {
                 println!("\nNo services with LCP.json found in: {:?}", root);
             } else {
-                println!("\nChecking workspace at: {:?}", root);
-
                 for service_path in services {
                     let lcp_path = service_path.join("LCP.json");
                     if let Ok(lcp) = LcpJson::load(&lcp_path) {
