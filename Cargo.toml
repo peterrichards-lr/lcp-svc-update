@@ -21,7 +21,7 @@ serde_json = "1.0"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 # Fetching & parsing release notes
-reqwest = { version = "0.11", features = ["blocking"] }
+reqwest = { version = "0.13", features = ["blocking"] }
 scraper = "0.18"
 
 [dev-dependencies]
