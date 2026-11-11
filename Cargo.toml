@@ -22,7 +22,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 # Fetching & parsing release notes
 reqwest = { version = "0.13", features = ["blocking"] }
-scraper = "0.18"
+scraper = "0.29"
 
 [dev-dependencies]
 # Required for the unit tests in src/core/env.rs
