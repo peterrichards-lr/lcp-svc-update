@@ -890,7 +890,7 @@ dependencies = [
 
 [[package]]
 name = "lcp-svc-update"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "anyhow",
  "chrono",
