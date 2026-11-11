@@ -1,10 +1,36 @@
 use std::path::Path;
 use std::process::Command;
 
-#[allow(dead_code)]
+pub fn is_repository(root: &Path) -> bool {
+    Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(root)
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
+/// Returns `git status --porcelain` lines for any of `files` with uncommitted changes.
+pub fn uncommitted_changes(root: &Path, files: &[&Path]) -> anyhow::Result<Vec<String>> {
+    let output = Command::new("git")
+        .args(["status", "--porcelain", "--"])
+        .args(files)
+        .current_dir(root)
+        .output()?;
+
+    if !output.status.success() {
+        anyhow::bail!("Git status failed")
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(String::from)
+        .collect())
+}
+
 pub fn git_add(root: &Path, files: &[&Path]) -> anyhow::Result<()> {
     let status = Command::new("git")
         .arg("add")
+        .arg("--")
         .args(files)
         .current_dir(root)
         .status()?;
@@ -16,12 +42,11 @@ pub fn git_add(root: &Path, files: &[&Path]) -> anyhow::Result<()> {
     }
 }
 
-#[allow(dead_code)]
-pub fn git_commit(root: &Path, message: &str) -> anyhow::Result<()> {
+/// Commits only `files`, leaving anything else that is staged untouched.
+pub fn git_commit(root: &Path, message: &str, files: &[&Path]) -> anyhow::Result<()> {
     let status = Command::new("git")
-        .arg("commit")
-        .arg("-m")
-        .arg(message)
+        .args(["commit", "-m", message, "--only", "--"])
+        .args(files)
         .current_dir(root)
         .status()?;
 
@@ -32,7 +57,6 @@ pub fn git_commit(root: &Path, message: &str) -> anyhow::Result<()> {
     }
 }
 
-#[allow(dead_code)]
 pub fn git_push(root: &Path) -> anyhow::Result<()> {
     let status = Command::new("git").arg("push").current_dir(root).status()?;
 
@@ -40,19 +64,5 @@ pub fn git_push(root: &Path) -> anyhow::Result<()> {
         Ok(())
     } else {
         anyhow::bail!("Git push failed")
-    }
-}
-
-#[allow(dead_code)]
-pub fn is_git_dirty(root: &Path) -> bool {
-    let output = Command::new("git")
-        .arg("status")
-        .arg("--porcelain")
-        .current_dir(root)
-        .output();
-
-    match output {
-        Ok(o) => !o.stdout.is_empty(),
-        Err(_) => false,
     }
 }

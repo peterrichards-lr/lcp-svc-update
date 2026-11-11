@@ -1,36 +1,28 @@
 [package]
 name = "lcp-svc-update"
-version = "0.1.1"
+version = "1.1.0"
 edition = "2021"
 authors = ["Peter Richards"]
 description = "Liferay Services Updater - Update Liferay Cloud service Docker image references (LCP.json)."
+repository = "https://github.com/peterrichards-lr/lcp-svc-update"
+license = "MIT"
 
 [dependencies]
 # CLI Argument parsing
-clap = { version = "4.4", features = ["derive"] }
-
-# XML Processing (Crucial for Tomcat/Liferay configs)
-edit-xml = "0.1"
+clap = { version = "4.4", features = ["derive", "env"] }
 
 # Error handling
 anyhow = "1.0"
 
 # Configuration & Data
-serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# Utilities
-chrono = "0.4"    # Timestamps for logs/backups
+# Dates for release note discovery
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
-# Optional dependencies for features
-reqwest = { version = "0.11", features = ["blocking"], optional = true }
-scraper = { version = "0.18", optional = true }
-serde_yaml = { version = "0.9", optional = true }
-
-[features]
-default = ["web"]
-web = ["reqwest", "scraper"]
-yaml = ["serde_yaml"]
+# Fetching & parsing release notes
+reqwest = { version = "0.11", features = ["blocking"] }
+scraper = "0.18"
 
 [dev-dependencies]
 # Required for the unit tests in src/core/env.rs

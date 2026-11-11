@@ -2,75 +2,72 @@ mod cli;
 mod core;
 mod utils;
 
-use crate::cli::{App, AppCommands};
-use crate::core::{LcpJson, LiferayProject, ProjectType, Workspace};
+use crate::cli::{App, AppCommands, SourceArgs};
+use crate::core::{LcpJson, LiferayProject, ProjectType, ServiceImages, Workspace};
 use crate::utils::{git, scraper};
 use clap::Parser;
-use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-fn find_matching_image(
-    service_id: &str,
-    current_image: &str,
-    latest_versions: &HashMap<String, String>,
-    detected_version: Option<&str>,
-) -> Option<String> {
-    if service_id == "liferay" {
-        // 1. Try detected version from gradle.properties
-        if let Some(v) = detected_version {
-            let specific_key = format!("liferay:{}", v);
-            if let Some(latest) = latest_versions.get(&specific_key) {
-                return Some(latest.clone());
-            }
-        }
-
-        // 2. Fallback to matching major.minor version from current image tag
-        if let Some(version_part) = current_image.split(':').nth(1) {
-            if let Some(v) = version_part.split('-').next() {
-                let specific_key = format!("liferay:{}", v);
-                if let Some(latest) = latest_versions.get(&specific_key) {
-                    return Some(latest.clone());
-                }
-            }
-        }
-    }
-
-    // Fallback to direct ID match
-    latest_versions.get(service_id).cloned()
+struct Update {
+    path: PathBuf,
+    service_id: String,
+    from: String,
+    to: String,
 }
 
-fn git_commit_and_push(root: &Path, updates: &[(String, String, String)]) -> anyhow::Result<()> {
-    if updates.is_empty() {
-        return Ok(());
-    }
+fn fetch_latest_images(source: &SourceArgs) -> anyhow::Result<ServiceImages> {
+    let client = scraper::client()?;
+    let release_url = match &source.release_url {
+        Some(url) => url.clone(),
+        None => {
+            println!("Finding latest service release notes...");
+            scraper::find_latest_release_url(&client, &source.changelog_url)?
+        }
+    };
+    println!("Reading service images from: {}", release_url);
+    scraper::fetch_service_images(&client, &release_url)
+}
 
+/// Loads the LCP.json of every service in the workspace, reporting any that can't be read.
+fn load_services(ws: &LiferayProject, root: &Path) -> anyhow::Result<Vec<(PathBuf, LcpJson)>> {
+    let mut services = Vec::new();
+    for service_path in ws.find_services(root)? {
+        let lcp_path = service_path.join("LCP.json");
+        match LcpJson::load(&lcp_path) {
+            Ok(lcp) => services.push((lcp_path, lcp)),
+            Err(e) => eprintln!("  [WARN] Could not read {}: {}", lcp_path.display(), e),
+        }
+    }
+    services.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(services)
+}
+
+fn git_commit_and_push(root: &Path, updates: &[Update], push: bool) -> anyhow::Result<()> {
     println!("\nCommitting changes...");
 
-    // 1. Git Add
-    let paths: Vec<std::path::PathBuf> = updates
-        .iter()
-        .map(|(id, _, _)| root.join(id).join("LCP.json"))
-        .collect();
+    let paths: Vec<&Path> = updates.iter().map(|u| u.path.as_path()).collect();
+    git::git_add(root, &paths)?;
 
-    let path_refs: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
-    git::git_add(root, &path_refs)?;
-
-    // 2. Git Commit
     let summary = "build: update Liferay Cloud service images";
     let mut description =
         String::from("Updated the following service images to their latest versions:\n");
-    for (id, old, new) in updates {
-        description.push_str(&format!("\n- {}: {} -> {}", id, old, new));
+    for update in updates {
+        description.push_str(&format!(
+            "\n- {}: {} -> {}",
+            update.service_id, update.from, update.to
+        ));
     }
 
     let commit_msg = format!("{}\n\n{}", summary, description);
-    git::git_commit(root, &commit_msg)?;
+    git::git_commit(root, &commit_msg, &paths)?;
 
-    // 3. Git Push
-    println!("Pushing to remote...");
-    git::git_push(root)?;
-
-    println!("Successfully committed and pushed updates.");
+    if push {
+        println!("Pushing to remote...");
+        git::git_push(root)?;
+        println!("Successfully committed and pushed updates.");
+    } else {
+        println!("Successfully committed updates.");
+    }
     Ok(())
 }
 
@@ -78,14 +75,12 @@ fn main() -> anyhow::Result<()> {
     let args = App::parse();
 
     match args.command {
-        AppCommands::Check { workspace } => {
+        AppCommands::Check { workspace, source } => {
             let ws = LiferayProject {
                 current_dir: workspace.canonicalize().unwrap_or(workspace),
             };
 
-            println!("Fetching latest service versions from Liferay Support...");
-            let latest_link = scraper::fetch_latest_update_link()?;
-            let latest_versions = scraper::fetch_service_versions(&latest_link)?;
+            let latest_images = fetch_latest_images(&source)?;
 
             let root = ws.find_root()?;
             let project_type = ws.detect_type(&root);
@@ -105,37 +100,31 @@ fn main() -> anyhow::Result<()> {
                 println!("Detected Liferay version: {}", v);
             }
 
-            let services = ws.find_services(&root)?;
+            let services = load_services(&ws, &root)?;
 
             if services.is_empty() {
                 println!("\nNo services with LCP.json found in: {:?}", root);
-            } else {
-                for service_path in services {
-                    let lcp_path = service_path.join("LCP.json");
-                    if let Ok(lcp) = LcpJson::load(&lcp_path) {
-                        let service_id = lcp.id.clone().unwrap_or_default();
-                        let current_image = lcp.image.clone().unwrap_or_default();
+            }
 
-                        if let Some(latest_image) = find_matching_image(
-                            &service_id,
-                            &current_image,
-                            &latest_versions,
-                            detected_liferay_v.as_deref(),
-                        ) {
-                            if current_image != latest_image {
-                                println!("  [UPDATE AVAILABLE] Service: {}", service_id);
-                                println!("    Current: {}", current_image);
-                                println!("    Latest:  {}", latest_image);
-                            } else {
-                                println!("  [OK] Service: {} is up to date.", service_id);
-                            }
-                        } else {
-                            println!(
-                                "  [SKIP] Service: {} (No latest version found for this ID)",
-                                service_id
-                            );
-                        }
+            for (_, lcp) in services {
+                let service_id = lcp.id.unwrap_or_default();
+                let current_image = lcp.image.unwrap_or_default();
+
+                match latest_images.find_match(
+                    &service_id,
+                    &current_image,
+                    detected_liferay_v.as_deref(),
+                ) {
+                    Some(latest_image) if latest_image != current_image => {
+                        println!("  [UPDATE AVAILABLE] Service: {}", service_id);
+                        println!("    Current: {}", current_image);
+                        println!("    Latest:  {}", latest_image);
                     }
+                    Some(_) => println!("  [OK] Service: {} is up to date.", service_id),
+                    None => println!(
+                        "  [SKIP] Service: {} (No latest version found for this ID)",
+                        service_id
+                    ),
                 }
             }
         }
@@ -143,6 +132,8 @@ fn main() -> anyhow::Result<()> {
             workspace,
             dry_run,
             commit,
+            push,
+            source,
         } => {
             let ws = LiferayProject {
                 current_dir: workspace.canonicalize().unwrap_or(workspace),
@@ -150,50 +141,76 @@ fn main() -> anyhow::Result<()> {
             let root = ws.find_root()?;
             let detected_liferay_v = ws.get_liferay_version(&root);
 
-            let services = ws.find_services(&root)?;
-
-            println!("Fetching latest service versions from Liferay Support...");
-            let latest_link = scraper::fetch_latest_update_link()?;
-            let latest_versions = scraper::fetch_service_versions(&latest_link)?;
-
+            let services = load_services(&ws, &root)?;
             if services.is_empty() {
                 println!("No services found to update.");
                 return Ok(());
             }
 
-            let mut updated_services = Vec::new();
+            let latest_images = fetch_latest_images(&source)?;
 
-            for service_path in services {
-                let lcp_path = service_path.join("LCP.json");
-                if let Ok(mut lcp) = LcpJson::load(&lcp_path) {
-                    let service_id = lcp.id.clone().unwrap_or_default();
-                    let current_image = lcp.image.clone().unwrap_or_default();
+            let mut pending = Vec::new();
+            for (path, lcp) in services {
+                let service_id = lcp.id.clone().unwrap_or_default();
+                let current_image = lcp.image.clone().unwrap_or_default();
 
-                    if let Some(latest_image) = find_matching_image(
-                        &service_id,
-                        &current_image,
-                        &latest_versions,
-                        detected_liferay_v.as_deref(),
-                    ) {
-                        if current_image != latest_image {
-                            if dry_run {
-                                println!(
-                                    "[DRY RUN] Would update {}: {} -> {}",
-                                    service_id, current_image, latest_image
-                                );
-                            } else {
-                                println!("Updating service: {} -> {}", service_id, latest_image);
-                                lcp.update_image(&latest_image);
-                                lcp.save(&lcp_path)?;
-                                updated_services.push((service_id, current_image, latest_image));
-                            }
-                        }
+                if let Some(latest_image) = latest_images.find_match(
+                    &service_id,
+                    &current_image,
+                    detected_liferay_v.as_deref(),
+                ) {
+                    if latest_image != current_image {
+                        let update = Update {
+                            path,
+                            service_id,
+                            from: current_image,
+                            to: latest_image.to_string(),
+                        };
+                        pending.push((update, lcp));
                     }
                 }
             }
 
-            if commit && !dry_run && !updated_services.is_empty() {
-                git_commit_and_push(&root, &updated_services)?;
+            if pending.is_empty() {
+                println!("All services are up to date.");
+                return Ok(());
+            }
+
+            if dry_run {
+                for (update, _) in &pending {
+                    println!(
+                        "[DRY RUN] Would update {}: {} -> {}",
+                        update.service_id, update.from, update.to
+                    );
+                }
+                return Ok(());
+            }
+
+            // Check before writing anything, so a refused commit leaves the workspace untouched
+            if commit {
+                if !git::is_repository(&root) {
+                    anyhow::bail!("Cannot commit: {:?} is not inside a Git repository", root);
+                }
+                let paths: Vec<&Path> = pending.iter().map(|(u, _)| u.path.as_path()).collect();
+                let changes = git::uncommitted_changes(&root, &paths)?;
+                if !changes.is_empty() {
+                    anyhow::bail!(
+                        "Cannot commit: these LCP.json files already have uncommitted changes:\n{}",
+                        changes.join("\n")
+                    );
+                }
+            }
+
+            let mut updated_services = Vec::new();
+            for (update, mut lcp) in pending {
+                println!("Updating service: {} -> {}", update.service_id, update.to);
+                lcp.update_image(&update.to)?;
+                lcp.save(&update.path)?;
+                updated_services.push(update);
+            }
+
+            if commit {
+                git_commit_and_push(&root, &updated_services, push)?;
             }
         }
     }
