@@ -1,8 +1,8 @@
 # Liferay Services Updater (lcp-svc-update)
 
-[![Release](https://github.com/peterrichards-lr/lcp-svc-update/actions/workflows/release.yml/badge.svg)](https://github.com/peterrichards-lr/lcp-svc-update/actions/workflows/release.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/rust-1.70%2B-blue.svg)](https://www.rust-lang.org)
+[![Release](https://img.shields.io/github/v/release/peterrichards-lr/lcp-svc-update)](https://github.com/peterrichards-lr/lcp-svc-update/releases)
+[![License](https://img.shields.io/github/license/peterrichards-lr/lcp-svc-update)](LICENSE)
+[![Rust CI](https://github.com/peterrichards-lr/lcp-svc-update/actions/workflows/rust.yml/badge.svg)](https://github.com/peterrichards-lr/lcp-svc-update/actions/workflows/rust.yml)
 
 A specialized CLI tool for Liferay Cloud developers to automatically update service Docker image references in their workspace.
 
@@ -46,25 +46,46 @@ Detected Liferay version: 7.4
 
 Installing via **Homebrew** or **Scoop** builds from source, which avoids "Unidentified Developer" warnings on macOS and gives a user-level installation on Windows.
 
-### macOS / Linux (Homebrew)
+### Homebrew (macOS / Linux)
+
 ```bash
 brew tap peterrichards-lr/tap
 brew install lcp-svc-update
 ```
 
-### Windows (Scoop)
+### Scoop (Windows)
+
 ```powershell
 scoop bucket add peterrichards-lr https://github.com/peterrichards-lr/scoop-bucket
 scoop install lcp-svc-update
 ```
 
-### From Source
-Ensure you have Rust and Cargo installed, then:
+### WSL (Windows Subsystem for Linux)
+
+Install [Homebrew on Linux](https://docs.brew.sh/Homebrew-on-Linux) inside your WSL distribution, then use the Homebrew commands above.
+
+### Manual Download
+
+Download the archive for your platform (Linux x86_64, macOS Apple Silicon or Intel, Windows x86_64) from the [Releases page](https://github.com/peterrichards-lr/lcp-svc-update/releases), extract it, and put `lcp-svc-update` on your `PATH`.
+
+### Build from Source
+
+Ensure you have Rust and Cargo installed, then from a clone of this repository:
+
 ```bash
 cargo install --path .
 ```
 
 ## Usage
+
+```bash
+lcp-svc-update --help
+lcp-svc-update check --help
+lcp-svc-update apply --help
+lcp-svc-update --version
+```
+
+Both commands run against the current directory by default; use `-w, --workspace <PATH>` to point at a different Liferay Cloud workspace.
 
 ### Check for Updates
 Scan your workspace and compare current image versions with the latest available releases:
@@ -89,7 +110,7 @@ Update and commit with a detailed summary of version changes:
 lcp-svc-update apply --commit
 ```
 
-Add `--push` to also push the commit to the remote. Only the updated `LCP.json` files are committed; anything else you have staged is left alone. The tool refuses to commit (and makes no changes) if any of the files it would update already have uncommitted changes.
+Add `--push` (`-p`) to also push the commit to the remote. Only the updated `LCP.json` files are committed; anything else you have staged is left alone. The tool refuses to commit (and makes no changes) if any of the files it would update already have uncommitted changes.
 
 ## Configuration
 
@@ -110,20 +131,37 @@ export LCP_SVC_UPDATE_CHANGELOG_URL=https://example.com/new/services-changelog
 
 ## How it Works
 
-1. **Discovery:** Reads the changelog index for the newest dated release notes. Because the index can lag behind new publications, it also checks the dated URL (`<year>.q<n>/<yyyy-mm-dd>-service-release-updates`) for each day since, up to today.
+1. **Discovery:** Reads the changelog index for the newest dated release notes. Because the index can lag behind new publications, it also checks the dated URL (`<year>.q<n>/<yyyy-mm-dd>-service-release-updates`) for each day since, up to today (looking back at most 31 days).
 2. **Detection:** Reads `liferay/gradle.properties` to identify the target product version (e.g., `7.4`).
 3. **Matching:** Maps release table entries to workspace service IDs (`id` in `LCP.json`). The `liferay` service is matched on its major.minor version (e.g. `7.4`), so it never crosses DXP versions.
 4. **Updating:** Replaces only the text of the top-level `image` value in each `LCP.json`, so diffs contain a single changed line.
 
 ## Releasing
 
-1. Bump `version` in `Cargo.toml`, run `cargo build` to update `Cargo.lock`, and commit.
-2. Tag the commit with the matching version and push it: `git tag v1.2.3 && git push origin v1.2.3`. The Release workflow fails if the tag doesn't match `Cargo.toml`.
-3. Update the Homebrew tap (and, for a first release, the Scoop bucket) from `formula.rb.example` and `scoop.json.example`. The Gemini prompt in `.gemini/prompts/update-distribution-channels.md` automates this:
+Activate the shared git hooks once per clone (they run `scripts/doctor.py`, `cargo fmt` and `cargo clippy` before each commit):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+1. Bump `version` in `Cargo.toml` and run `cargo build` to update `Cargo.lock`.
+2. Move the `[Unreleased]` entries in `CHANGELOG.md` into a new `## [x.y.z] - YYYY-MM-DD` section.
+3. Commit, then create an annotated tag and push it:
+   ```bash
+   python3 scripts/release.py --tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+   The release workflow fails if the tag isn't annotated, doesn't match `Cargo.toml`, or has no `CHANGELOG.md` section. That section becomes the GitHub release notes.
+4. Update the Homebrew tap from `formula.rb.example`. The Gemini prompt in `.gemini/prompts/update-distribution-channels.md` automates this:
    ```bash
    "Please execute the steps in .gemini/prompts/update-distribution-channels.md to update my distribution repositories"
    ```
-   The Scoop bucket picks up later releases automatically.
+   The Scoop bucket picks up later releases automatically once a tool's manifest exists.
+
+## Disclaimer
+
+**This tool is provided "as-is", without warranty of any kind. `apply` rewrites `LCP.json` files in your workspace, and with `--commit` / `--push` it creates git commits and pushes them to your remote.** Run `check` or `apply --dry-run` first, review the changes before deploying them to Liferay Cloud, and make sure the new service images are compatible with your environment. You use it at your own risk.
 
 ## License
+
 MIT - See [LICENSE](LICENSE) for details.
