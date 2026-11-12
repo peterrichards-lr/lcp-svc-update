@@ -152,11 +152,7 @@ git config core.hooksPath .githooks
    git push origin vX.Y.Z
    ```
    The release workflow fails if the tag isn't annotated, doesn't match `Cargo.toml`, or has no `CHANGELOG.md` section. That section becomes the GitHub release notes.
-4. Update the Homebrew tap from `formula.rb.example`. The Gemini prompt in `.gemini/prompts/update-distribution-channels.md` automates this:
-   ```bash
-   "Please execute the steps in .gemini/prompts/update-distribution-channels.md to update my distribution repositories"
-   ```
-   The Scoop bucket picks up later releases automatically once a tool's manifest exists.
+4. The Homebrew tap and Scoop bucket pick up the new release automatically within a couple of hours. `.gemini/prompts/update-distribution-channels.md` is only needed for a tool's first release.
 
 ## Disclaimer
 
